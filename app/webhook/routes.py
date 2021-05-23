@@ -106,5 +106,5 @@ def action_update():
     
     formattedOutput = "<br><br>".join(line)     # Formatted output as response
 
-    return """<meta http-equiv="refresh" content="35" /> 
+    return """<meta http-equiv="refresh" content="15" /> 
             <br>{}""".format(formattedOutput)
