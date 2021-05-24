@@ -1,6 +1,6 @@
 from flask import Blueprint, json, request
 from app.extensions import mongo
-from datetime import datetime
+from datetime import datetime, timedelta
 from multiprocessing import Value
 
 
@@ -15,12 +15,16 @@ def receiver():
     
     data = request.json
     actions_data = mongo.db.github_actions      # mongodb object to handle query
+    time_str = datetime.strptime(
+                            data['head_commit']['timestamp'], 
+                            "%Y-%m-%dT%H:%M:%S%z")
+    time = (time_str - timedelta(hours=5, minutes=30)).strftime("%d %b %-I:%M %p") + " UTC"
     actions_data.insert({
                         "request_id": data['commits'][0]['id'], 
                         "author": data['head_commit']['author']['username'], 
                         "action": "PUSH", "from_branch": data['ref'].split("/")[-1], 
                         "to_branch": data['ref'].split("/")[-1], 
-                        "timestamp": data['repository']['updated_at'],
+                        "timestamp": time,
                         })
     with counter.get_lock():
         counter.value += 1      # increase request count
@@ -32,13 +36,16 @@ def pullrequest():
 
     data = request.json
     actions_data = mongo.db.github_actions      # mongodb object to handle query
+    time = datetime.strptime(
+                            data['pull_request']['merged_at'], 
+                            "%Y-%m-%dT%H:%M:%S%z").strftime("%d %b %-I:%M %p %Z")
     if data['pull_request']['merged']:
         actions_data.insert({
                             "request_id": str(data['pull_request']['id']), 
                             "author": data['sender']['login'], "action": "MERGE", 
                             "from_branch": data['pull_request']['base']['ref'], 
                             "to_branch": data['pull_request']['head']['ref'], 
-                            "timestamp": data['pull_request']['merged_at']
+                            "timestamp": time
                             })
     else:
         actions_data.insert({
@@ -47,7 +54,7 @@ def pullrequest():
                             "action": "PULL_REQUEST", 
                             "from_branch": data['pull_request']['base']['ref'], 
                             "to_branch": data['pull_request']['head']['ref'], 
-                            "timestamp": data['pull_request']['updated_at']
+                            "timestamp": time
                             })
     with counter.get_lock():
         counter.value += 1      # increase request count
@@ -67,9 +74,6 @@ def action_update():
     records = actions_data.find().sort("_id",-1).limit(count)
     line = list()
     for record in records:
-        time = datetime.strptime(
-                                record['timestamp'], 
-                                "%Y-%m-%dT%H:%M:%S%z").strftime("%d %b %-I:%M %p %Z")
 
         if record['action'] == 'PUSH':
             statement = (
@@ -77,7 +81,7 @@ def action_update():
                         + " pushed to " 
                         + record['to_branch'] 
                         + " on " 
-                        + time 
+                        + record['timestamp']
                         )
 
         elif record['action'] == 'PULL_REQUEST':
@@ -88,7 +92,7 @@ def action_update():
                         + " to " 
                         + record['to_branch'] 
                         + " on " 
-                        + time 
+                        + record['timestamp'] 
                         )
 
         elif record['action'] == 'MERGE':
@@ -99,7 +103,7 @@ def action_update():
                         + " to " 
                         + record['to_branch'] 
                         + " on " 
-                        + time
+                        + record['timestamp']
                         )
 
         line.append(statement)              # collection of all updates in last 15 seconds
